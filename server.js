@@ -156,7 +156,7 @@ async function runContributorUpload(job) {
 
   await execCommand(`${automationPrefix}take_snapshot`);
   const metadataScript = `() => { const titleText = ${JSON.stringify(buildTitle(job))}; const keywordsText = ${JSON.stringify(buildKeywords(job))}; const titleField = document.querySelector('textarea[name=\"title\"]') || document.querySelector('textarea[aria-label=\"Content title\"]'); if (titleField) { titleField.value = titleText; titleField.dispatchEvent(new Event('input', { bubbles: true })); } const keywordsField = document.querySelector('textarea[name=\"keywordsUITextArea\"]') || document.querySelector('textarea[aria-label=\"Paste Keywords...\"]'); if (keywordsField) { keywordsField.value = keywordsText; keywordsField.dispatchEvent(new Event('input', { bubbles: true })); } return {title: Boolean(titleField), keywords: Boolean(keywordsField)}; }`;
-  const escapedMetadata = metadataScript.replace(/\n/g, ' ').replace(/"/g, '\"');
+  const escapedMetadata = metadataScript.replace(/\n/g, ' ').replace(/"/g, '\\"');
   await execCommand(`${automationPrefix}evaluate_script function="${escapedMetadata}"`);
 
   const postMetaSnap = await execCommand(`${automationPrefix}take_snapshot`);
@@ -287,29 +287,44 @@ ${stderrLog}`);
 
 app.post('/api/upscale', async (req, res) => {
   const { jobId, fileName } = req.body;
+  const safeFileName = fileName ? path.basename(fileName) : null;
   let job = jobId ? findJob(jobId) : null;
-  if (!job && fileName) {
-    job = jobHistory.find((entry) => entry.output?.endsWith(fileName));
+
+  if (!job && safeFileName) {
+    job = jobHistory.find((entry) => entry.output?.endsWith(`/${safeFileName}`));
   }
-  if (!job || !job.output) {
-    return res.status(404).json({ error: 'Job not found or missing output.' });
+
+  let relativeOutput = job?.output || (safeFileName ? path.join('outputs', safeFileName) : null);
+  if (!relativeOutput) {
+    return res.status(404).json({ error: 'Job/file not found or missing output.' });
   }
-  const source = path.join(__dirname, job.output);
+
+  const source = path.join(__dirname, relativeOutput);
   try {
     await fs.access(source);
   } catch (error) {
     return res.status(404).json({ error: 'Source asset missing.' });
   }
+
   try {
-    const destPath = await buildUpscaledPath(job.output);
+    const destPath = await buildUpscaledPath(relativeOutput);
     await fs.copyFile(source, destPath);
     const relative = path.relative(__dirname, destPath);
-    job.output = relative;
-    job.downloadUrl = `/outputs/${path.basename(relative)}`;
-    job.status = 'upscaled';
-    job.detail = 'Upscaled asset locally';
-    job.updatedAt = new Date().toISOString();
-    return res.json({ message: 'Upscale completed locally.', job, outputUrl: job.downloadUrl });
+
+    if (job) {
+      job.output = relative;
+      job.downloadUrl = `/outputs/${path.basename(relative)}`;
+      job.status = 'upscaled';
+      job.detail = 'Upscaled asset locally';
+      job.updatedAt = new Date().toISOString();
+    }
+
+    return res.json({
+      message: 'Upscale completed locally.',
+      outputUrl: `/outputs/${path.basename(relative)}`,
+      file: path.basename(relative),
+      job: job || null,
+    });
   } catch (error) {
     console.error('Upscale copy failed', error);
     return res.status(500).json({ error: 'Unable to create upscaled file.', detail: error.message });
@@ -368,6 +383,36 @@ app.post('/api/job/:id/upload', async (req, res) => {
   } catch (error) {
     console.error('Upload automation failed', error);
     updateJob(job.id, { status: 'upload-failed', detail: error.error?.message || error.message });
+    return res.status(500).json({ error: 'Upload automation failed.', detail: error.stderr || error.error?.message || error.message });
+  }
+});
+
+app.post('/api/output/:file/upload', async (req, res) => {
+  const safeName = path.basename(req.params.file || '');
+  if (!safeName) {
+    return res.status(400).json({ error: 'File is required.' });
+  }
+  const relative = path.join('outputs', safeName);
+  const absolute = path.join(__dirname, relative);
+  try {
+    await fs.access(absolute);
+  } catch (error) {
+    return res.status(404).json({ error: 'Output file not found.' });
+  }
+
+  const pseudoJob = {
+    id: `file-${safeName}`,
+    output: relative,
+    filename: safeName,
+    prompts: [safeName.replace(/[-_]+/g, ' ')],
+    status: 'uploading',
+  };
+
+  try {
+    await runContributorUpload(pseudoJob);
+    return res.json({ message: 'Upload automation completed for output file.' });
+  } catch (error) {
+    console.error('Output upload automation failed', error);
     return res.status(500).json({ error: 'Upload automation failed.', detail: error.stderr || error.error?.message || error.message });
   }
 });
