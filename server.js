@@ -14,6 +14,7 @@ const outputsDir = path.join(__dirname, 'outputs');
 const workspaceRoot = path.resolve(__dirname, '..', '..');
 const scriptPath = path.join(workspaceRoot, 'skills', 'nano-banana-pro', 'scripts', 'generate_image.py');
 const secretFilePath = path.join(process.env.HOME || '', '.openclaw', 'api.txt');
+const automationPrefix = `cd ${workspaceRoot} && mcporter call chrome-devtools.`;
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -73,6 +74,53 @@ async function resolveGeminiKey() {
 
 async function resolveReplicateToken() {
   return resolveSecret('Replicate', 'REPLICATE_API_TOKEN');
+}
+
+function execCommand(command) {
+  return new Promise((resolve, reject) => {
+    exec(command, { cwd: workspaceRoot, timeout: 90000 }, (error, stdout, stderr) => {
+      if (error) {
+        return reject({ error, stdout, stderr });
+      }
+      return resolve({ stdout, stderr });
+    });
+  });
+}
+
+function buildTitle(job) {
+  const base = (job.prompts?.[0] || 'Nano Banana artwork').trim();
+  return base.slice(0, 190);
+}
+
+function buildKeywords(job) {
+  const prompt = job.prompts?.[0] || 'Nano Banana';
+  const parts = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .split(/\\s+/)
+    .filter(Boolean);
+  const unique = Array.from(new Set(parts));
+  return unique.slice(0, 10).join(', ');
+}
+
+async function runContributorUpload(job) {
+  const absoluteFilePath = path.join(__dirname, job.output || job.filename || '');
+  if (!absoluteFilePath) {
+    throw new Error('Missing output path for upload');
+  }
+  const commands = [];
+  commands.push(`${automationPrefix}navigate_page url=https://contributor.stock.adobe.com/en/uploads`);
+  commands.push(`${automationPrefix}click uid=2_16`);
+  commands.push(`${automationPrefix}click uid=3_4`);
+  commands.push(`${automationPrefix}upload_file uid=5_0 filePath=\"${absoluteFilePath}\"`);
+  commands.push(`${automationPrefix}click uid=2_44`);
+  const metadataScript = `(() => { const titleText = ${JSON.stringify(buildTitle(job))}; const keywordsText = ${JSON.stringify(buildKeywords(job))}; const titleField = document.querySelector('textarea[name="title"]'); if (titleField) { titleField.value = titleText; titleField.dispatchEvent(new Event('input', { bubbles: true })); } const keywordsField = document.querySelector('textarea[name="keywordsUITextArea"]'); if (keywordsField) { keywordsField.value = keywordsText; keywordsField.dispatchEvent(new Event('input', { bubbles: true })); } return true; })()`;
+  commands.push(`${automationPrefix}evaluate_script function="${metadataScript.replace(/\\n/g, ' ')}"`);
+  commands.push(`${automationPrefix}click uid=7_6`);
+  commands.push(`${automationPrefix}click uid=2_112`);
+  for (const cmd of commands) {
+    await execCommand(cmd);
+  }
 }
 
 function findJob(id) {
@@ -263,7 +311,7 @@ app.post('/api/upload', (req, res) => {
   openUploadBrowser(placeholderJob, 'general upload', res);
 });
 
-app.post('/api/job/:id/upload', (req, res) => {
+app.post('/api/job/:id/upload', async (req, res) => {
   const job = findJob(req.params.id);
   if (!job) {
     return res.status(404).json({ error: 'Job not found.' });
@@ -271,7 +319,16 @@ app.post('/api/job/:id/upload', (req, res) => {
   if (!job.output || job.deleted) {
     return res.status(400).json({ error: 'Job has no available asset to upload.' });
   }
-  openUploadBrowser(job, job.prompts?.[0] || 'selected asset', res);
+  updateJob(job.id, { status: 'uploading', detail: 'Automating Adobe Stock upload' });
+  try {
+    await runContributorUpload(job);
+    updateJob(job.id, { status: 'uploaded', detail: 'Upload completed on Adobe Stock', uploadedAt: new Date().toISOString() });
+    return res.json({ message: 'Upload automation completed.' });
+  } catch (error) {
+    console.error('Upload automation failed', error);
+    updateJob(job.id, { status: 'upload-failed', detail: error.error?.message || error.message });
+    return res.status(500).json({ error: 'Upload automation failed.', detail: error.stderr || error.error?.message || error.message });
+  }
 });
 
 app.post('/api/job/:id/download', (req, res) => {
