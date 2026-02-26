@@ -230,7 +230,7 @@ app.post('/api/upscale', async (req, res) => {
 function openUploadBrowser(job, label, res) {
   const target = 'https://stock.adobe.com/contributor';
   exec(
-    `cd /home/strid3r/.openclaw/workspace && mcporter call chrome-devtools.new_page url=${target}`,
+    `cd /home/strid3r/.openclaw/workspace && mcporter call chrome-devtools.navigate_page url=${target}`,
     { timeout: 20000 },
     (error, stdout, stderr) => {
       if (error) {
@@ -245,7 +245,7 @@ function openUploadBrowser(job, label, res) {
         status: 'upload-triggered',
         detail: `Headed browser opened for ${label}`,
       });
-      return res.json({ message: 'Headed browser launched to Adobe Stock Contributor in a new tab.', stdout });
+      return res.json({ message: 'Headed browser launched to Adobe Stock Contributor.', stdout });
     },
   );
 }
