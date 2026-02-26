@@ -63,7 +63,6 @@ export GEMINI_IMAGE_MODEL=gemini-2.5-pro-image-preview
 - Responsive grid ensures four prompts stay readable on desktop and compress gracefully to mobile breakpoints.
 - Status area and job log surface the latest actions.
 - The generated-gallery panel shows thumbnails of successful generations, complete with download/upload/delete controls, so the log stays focused on status while the gallery highlights art.
-- Downloaded assets live under `projects/image-dashboard/downloads/` and the dashboard queries that folder for the “Downloaded images” panel, so every download is reflected in the selectable list for bulk uploads or deletions.
 
 ## Next steps
 
