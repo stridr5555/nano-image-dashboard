@@ -3,17 +3,23 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs').promises;
 const fetch = require('node-fetch');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const prompts = require('./prompts.json');
 const jobHistory = [];
+const outputsDir = path.join(__dirname, 'outputs');
+const scriptPath = path.join(__dirname, '..', 'skills', 'nano-banana-pro', 'scripts', 'generate_image.py');
+const secretFilePath = path.join(process.env.HOME || '', '.openclaw', 'api.txt');
+let secretCache = null;
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+fs.mkdir(outputsDir, { recursive: true }).catch(() => {});
 
 function samplePrompts() {
   const copy = prompts.slice();
@@ -29,27 +35,44 @@ function pushJob(entry) {
   if (jobHistory.length > 12) jobHistory.pop();
 }
 
-let replicateTokenCache = null;
-async function resolveReplicateToken() {
-  if (replicateTokenCache) return replicateTokenCache;
-  if (process.env.REPLICATE_API_TOKEN) {
-    replicateTokenCache = process.env.REPLICATE_API_TOKEN.trim();
-    return replicateTokenCache;
-  }
-  const possiblePath = path.join(process.env.HOME || '', '.openclaw', 'api.txt');
+function updateJob(id, updates) {
+  const idx = jobHistory.findIndex((job) => job.id === id);
+  if (idx === -1) return;
+  jobHistory[idx] = { ...jobHistory[idx], ...updates };
+}
+
+async function loadSecrets() {
+  if (secretCache) return secretCache;
+  secretCache = {};
   try {
-    const raw = await fs.readFile(possiblePath, 'utf8');
+    const raw = await fs.readFile(secretFilePath, 'utf8');
     const lines = raw.split(/\r?\n/);
     for (let i = 0; i < lines.length; i += 1) {
-      if (lines[i].trim() === 'Replicate' && lines[i + 1]) {
-        replicateTokenCache = lines[i + 1].trim();
-        return replicateTokenCache;
-      }
+      const label = lines[i].trim();
+      if (!label) continue;
+      const value = lines[i + 1];
+      if (!value) continue;
+      secretCache[label] = value.trim();
+      i += 1;
     }
   } catch (error) {
-    console.warn('Could not read replicate token file', error.message);
+    console.warn('Secret file not found or unreadable:', error.message);
   }
-  return null;
+  return secretCache;
+}
+
+async function resolveSecret(name, envVar) {
+  if (process.env[envVar]) return process.env[envVar].trim();
+  const secrets = await loadSecrets();
+  return secrets[name] || null;
+}
+
+async function resolveGeminiKey() {
+  return resolveSecret('Gemini', 'GEMINI_API_KEY');
+}
+
+async function resolveReplicateToken() {
+  return resolveSecret('Replicate', 'REPLICATE_API_TOKEN');
 }
 
 app.get('/api/prompts', (req, res) => {
@@ -60,21 +83,84 @@ app.get('/api/jobs', (req, res) => {
   res.json({ jobs: jobHistory });
 });
 
-app.post('/api/generate', (req, res) => {
+app.post('/api/generate', async (req, res) => {
   const { prompts: selected } = req.body;
   if (!Array.isArray(selected) || selected.length === 0) {
     return res.status(400).json({ error: 'Select at least one prompt before generation.' });
   }
-  const job = {
-    id: crypto.randomBytes(4).toString('hex'),
-    type: 'generation',
-    prompts: selected,
-    timestamp: new Date().toISOString(),
-    status: 'queued',
-  };
-  pushJob(job);
-  console.log('Queuing Nano Banana generation job with prompts:', selected);
-  return res.json({ message: 'Image generation queued.', job });
+  const key = await resolveGeminiKey();
+  if (!key) {
+    return res.status(500).json({ error: 'Gemini API key is missing. Set GEMINI_API_KEY or update .openclaw/api.txt with the Gemini entry.' });
+  }
+  await fs.mkdir(outputsDir, { recursive: true });
+  const requested = selected.slice(0, 4);
+  const queuedJobs = [];
+
+  requested.forEach((prompt) => {
+    const jobId = crypto.randomBytes(4).toString('hex');
+    const slug = prompt
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32) || 'nano';
+    const filename = `${jobId}-${slug}.png`;
+    const outputFile = path.join(outputsDir, filename);
+    const job = {
+      id: jobId,
+      type: 'generation',
+      prompts: [prompt],
+      timestamp: new Date().toISOString(),
+      status: 'scheduled',
+      detail: 'Queued for Nano Banana generation',
+      filename,
+    };
+    pushJob(job);
+    queuedJobs.push(job);
+
+    const child = spawn('python3', [
+      scriptPath,
+      '--prompt',
+      prompt,
+      '--filename',
+      outputFile,
+      '--resolution',
+      '2K',
+    ], {
+      env: { ...process.env, GEMINI_API_KEY: key },
+    });
+
+    let stdoutLog = '';
+    let stderrLog = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdoutLog += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderrLog += chunk.toString();
+    });
+
+    child.on('spawn', () => updateJob(jobId, { status: 'running', detail: 'Generating image…' }));
+    child.on('error', (error) => {
+      updateJob(jobId, {
+        status: 'failed',
+        detail: `Spawn failed: ${error.message}`,
+        log: stderrLog || error.message,
+        timestamp: new Date().toISOString(),
+      });
+    });
+    child.on('close', (code) => {
+      const success = code === 0;
+      updateJob(jobId, {
+        status: success ? 'completed' : 'failed',
+        detail: success ? `Saved ${filename}` : `Error (exit ${code})`,
+        log: stdoutLog || stderrLog,
+        output: success ? path.relative(__dirname, outputFile) : undefined,
+        timestamp: new Date().toISOString(),
+      });
+    });
+  });
+
+  return res.json({ message: 'Generation jobs submitted.', jobs: queuedJobs.map((job) => job.id) });
 });
 
 app.post('/api/upscale', async (req, res) => {

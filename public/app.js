@@ -53,6 +53,8 @@ async function refreshJobLog() {
             <small>${new Date(job.timestamp).toLocaleTimeString()}</small>
           </div>
           <div>${job.prompts?.length ? job.prompts.join(', ') : '—'}</div>
+          <small>${job.detail || '—'}</small>
+          ${job.output ? `<small>Output: ${job.output}</small>` : ''}
           <small>Status: ${job.status}${job.predictionUrl ? ` • <a href="${job.predictionUrl}" target="_blank" rel="noreferrer">view</a>` : ''}</small>
         </article>
       `,
