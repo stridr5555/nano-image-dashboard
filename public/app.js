@@ -52,8 +52,9 @@ function renderGallery(items) {
         const imageUrl = item.downloadUrl || item.url;
         const label = item.prompt || item.prompts?.[0] || 'Generated image';
         const detail = item.detail || item.status || 'Generated';
-        const targetId = item.jobId || item.id;
-        const canDelete = item.jobId && !item.deleted;
+        const hasJob = Boolean(item.jobId);
+        const deleteTarget = hasJob ? item.jobId : item.file;
+        const deleteType = hasJob ? 'job' : 'file';
         return `
       <article class="gallery-card">
         <img src="${imageUrl}" alt="${label}" loading="lazy">
@@ -65,8 +66,8 @@ function renderGallery(items) {
           <strong>${label}</strong>
           <small>${detail}</small>
           <div class="gallery-actions">
-            ${targetId && !item.deleted ? `<button class="btn upload-btn" data-id="${targetId}">Upload</button>` : ''}
-            ${canDelete ? `<button class="btn ghost delete-btn" data-id="${targetId}">Delete</button>` : ''}
+            ${hasJob && !item.deleted ? `<button class="btn upload-btn" data-id="${item.jobId}">Upload</button>` : ''}
+            ${deleteTarget ? `<button class="btn ghost delete-btn" data-type="${deleteType}" data-id="${deleteTarget}">Delete</button>` : ''}
           </div>
         </div>
       </article>
@@ -189,6 +190,23 @@ uploadButton.addEventListener('click', async () => {
   }
 });
 
+async function deleteOutput(fileName) {
+  if (!fileName) return;
+  setStatus('Deleting output...');
+  try {
+    const response = await fetch(`/api/output/${encodeURIComponent(fileName)}`, { method: 'DELETE' });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'Delete failed');
+    }
+    setStatus('Output deleted.');
+    refreshJobLog();
+  } catch (error) {
+    console.error(error);
+    setStatus('Delete failed. Check console.');
+  }
+}
+
 async function deleteJobAsset(jobId) {
   setStatus('Deleting asset…');
   try {
@@ -222,7 +240,12 @@ jobLog.addEventListener('click', async (event) => {
   if (!button) return;
   const jobId = button.dataset.id;
   if (button.classList.contains('delete-btn')) {
-    await deleteJobAsset(jobId);
+    const type = button.dataset.type;
+    if (type === 'job') {
+      await deleteJobAsset(jobId);
+    } else {
+      await deleteOutput(button.dataset.id);
+    }
     return;
   }
   if (button.classList.contains('upload-btn')) {
@@ -236,7 +259,12 @@ galleryGrid.addEventListener('click', async (event) => {
   if (!button) return;
   const jobId = button.dataset.id;
   if (button.classList.contains('delete-btn')) {
-    await deleteJobAsset(jobId);
+    const type = button.dataset.type;
+    if (type === 'job') {
+      await deleteJobAsset(jobId);
+    } else {
+      await deleteOutput(button.dataset.id);
+    }
     return;
   }
   if (button.classList.contains('upload-btn')) {

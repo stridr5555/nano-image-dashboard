@@ -115,7 +115,8 @@ async function runContributorUpload(job) {
   commands.push(`${automationPrefix}upload_file uid=5_0 filePath=\"${absoluteFilePath}\"`);
   commands.push(`${automationPrefix}click uid=2_44`);
   const metadataScript = `(() => { const titleText = ${JSON.stringify(buildTitle(job))}; const keywordsText = ${JSON.stringify(buildKeywords(job))}; const titleField = document.querySelector('textarea[name="title"]'); if (titleField) { titleField.value = titleText; titleField.dispatchEvent(new Event('input', { bubbles: true })); } const keywordsField = document.querySelector('textarea[name="keywordsUITextArea"]'); if (keywordsField) { keywordsField.value = keywordsText; keywordsField.dispatchEvent(new Event('input', { bubbles: true })); } return true; })()`;
-  commands.push(`${automationPrefix}evaluate_script function="${metadataScript.replace(/\\n/g, ' ')}"`);
+  const escapedMetadata = metadataScript.replace(/\\n/g, ' ').replace(/\"/g, '\\\"');
+  commands.push(`${automationPrefix}evaluate_script function="${escapedMetadata}"`);
   commands.push(`${automationPrefix}click uid=7_6`);
   commands.push(`${automationPrefix}click uid=2_112`);
   for (const cmd of commands) {
@@ -370,6 +371,7 @@ app.get('/api/outputs', async (req, res) => {
           detail: job?.detail || 'Generated',
           status: job?.status || 'generated',
           url: `/outputs/${file}`,
+          file,
           jobId: job?.id || null,
           deleted: job?.deleted || false,
           downloaded: job?.downloaded || false,
@@ -380,6 +382,32 @@ app.get('/api/outputs', async (req, res) => {
     console.error('Unable to list outputs', error);
     return res.status(500).json({ error: 'Unable to list outputs.', detail: error.message });
   }
+});
+
+app.delete('/api/output/:file', async (req, res) => {
+  const file = req.params.file;
+  if (!file) {
+    return res.status(400).json({ error: 'File name is required.' });
+  }
+  const safeName = path.basename(file);
+  const absolutePath = path.join(outputsDir, safeName);
+  try {
+    await fs.access(absolutePath);
+  } catch (error) {
+    return res.status(404).json({ error: 'File not found.' });
+  }
+  try {
+    await fs.unlink(absolutePath);
+  } catch (error) {
+    console.error('Failed to delete output', error);
+    return res.status(500).json({ error: 'Unable to remove file.' });
+  }
+  const job = jobHistory.find((entry) => entry.output?.endsWith(`/${safeName}`));
+  if (job) {
+    job.deleted = true;
+    job.detail = 'Deleted via gallery';
+  }
+  return res.json({ message: 'Output deleted', file: safeName });
 });
 
 app.delete('/api/job/:id', async (req, res) => {
