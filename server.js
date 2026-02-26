@@ -126,20 +126,49 @@ async function runContributorUpload(job) {
   if (!absoluteFilePath) {
     throw new Error('Missing output path for upload');
   }
-  const commands = [];
-  commands.push(`${automationPrefix}navigate_page url=https://contributor.stock.adobe.com/en/uploads`);
-  commands.push(`${automationPrefix}click uid=2_16`);
-  commands.push(`${automationPrefix}click uid=3_4`);
-  commands.push(`${automationPrefix}upload_file uid=5_0 filePath=\"${absoluteFilePath}\"`);
-  commands.push(`${automationPrefix}click uid=2_44`);
-  const metadataScript = `(() => { const titleText = ${JSON.stringify(buildTitle(job))}; const keywordsText = ${JSON.stringify(buildKeywords(job))}; const titleField = document.querySelector('textarea[name="title"]'); if (titleField) { titleField.value = titleText; titleField.dispatchEvent(new Event('input', { bubbles: true })); } const keywordsField = document.querySelector('textarea[name="keywordsUITextArea"]'); if (keywordsField) { keywordsField.value = keywordsText; keywordsField.dispatchEvent(new Event('input', { bubbles: true })); } return true; })()`;
-  const escapedMetadata = metadataScript.replace(/\\n/g, ' ').replace(/\"/g, '\\\"');
-  commands.push(`${automationPrefix}evaluate_script function="${escapedMetadata}"`);
-  commands.push(`${automationPrefix}click uid=7_6`);
-  commands.push(`${automationPrefix}click uid=2_112`);
-  for (const cmd of commands) {
-    await execCommand(cmd);
+
+  const getUid = (snapshot, labelRegex) => {
+    const lines = snapshot.split('\n');
+    for (const line of lines) {
+      const uidMatch = line.match(/uid=([\w_]+)/);
+      if (!uidMatch) continue;
+      if (labelRegex.test(line)) return uidMatch[1];
+    }
+    return null;
+  };
+
+  await execCommand(`${automationPrefix}navigate_page url=https://contributor.stock.adobe.com/en/uploads`);
+
+  let snap = await execCommand(`${automationPrefix}take_snapshot`);
+  let browseUid = getUid(snap.stdout, /button "Browse"/);
+
+  if (!browseUid) {
+    const uploadUid = getUid(snap.stdout, /button "Upload"/);
+    if (!uploadUid) throw new Error('Upload button not found on contributor page.');
+    await execCommand(`${automationPrefix}click uid=${uploadUid}`);
+    snap = await execCommand(`${automationPrefix}take_snapshot`);
+    browseUid = getUid(snap.stdout, /button "Browse"/);
   }
+
+  if (!browseUid) throw new Error('Browse button not found after opening upload dialog.');
+
+  await execCommand(`${automationPrefix}upload_file uid=${browseUid} filePath="${absoluteFilePath}"`);
+
+  await execCommand(`${automationPrefix}take_snapshot`);
+  const metadataScript = `() => { const titleText = ${JSON.stringify(buildTitle(job))}; const keywordsText = ${JSON.stringify(buildKeywords(job))}; const titleField = document.querySelector('textarea[name=\"title\"]') || document.querySelector('textarea[aria-label=\"Content title\"]'); if (titleField) { titleField.value = titleText; titleField.dispatchEvent(new Event('input', { bubbles: true })); } const keywordsField = document.querySelector('textarea[name=\"keywordsUITextArea\"]') || document.querySelector('textarea[aria-label=\"Paste Keywords...\"]'); if (keywordsField) { keywordsField.value = keywordsText; keywordsField.dispatchEvent(new Event('input', { bubbles: true })); } return {title: Boolean(titleField), keywords: Boolean(keywordsField)}; }`;
+  const escapedMetadata = metadataScript.replace(/\n/g, ' ').replace(/"/g, '\"');
+  await execCommand(`${automationPrefix}evaluate_script function="${escapedMetadata}"`);
+
+  const postMetaSnap = await execCommand(`${automationPrefix}take_snapshot`);
+  const noUid = getUid(postMetaSnap.stdout, /button "No"/);
+  const saveUid = getUid(postMetaSnap.stdout, /button "Save work"/);
+
+  if (noUid) {
+    await execCommand(`${automationPrefix}click uid=${noUid}`);
+  }
+  if (!saveUid) throw new Error('Save work button not found after metadata fill.');
+
+  await execCommand(`${automationPrefix}click uid=${saveUid}`);
 }
 
 function findJob(id) {

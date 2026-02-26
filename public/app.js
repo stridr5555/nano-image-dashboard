@@ -326,9 +326,10 @@ async function batchDeleteSelection() {
 
 async function triggerUpscale(targetId) {
   if (!targetId) return;
-  const jobId = String(targetId).replace(/^job-/, '');
-  const fileName = jobId === targetId ? null : targetId;
-  const payload = jobId ? { jobId } : { fileName };
+  const raw = String(targetId);
+  const payload = raw.startsWith('job-')
+    ? { jobId: raw.replace(/^job-/, '') }
+    : (/^[a-f0-9]{8}$/i.test(raw) ? { jobId: raw } : { fileName: raw });
   setStatus('Upscaling...');
   try {
     const response = await fetch('/api/upscale', {
@@ -366,6 +367,8 @@ galleryGrid.addEventListener('click', async (event) => {
     const action = button.dataset.action;
     if (action === 'upload') {
       await triggerUpload(button.dataset.id);
+    } else if (action === 'upscale') {
+      await triggerUpscale(button.dataset.id);
     } else if (action === 'delete') {
       const type = button.dataset.type;
       const target = button.dataset.id;
