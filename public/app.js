@@ -54,7 +54,8 @@ async function refreshJobLog() {
           </div>
           <div>${job.prompts?.length ? job.prompts.join(', ') : '—'}</div>
           <small>${job.detail || '—'}</small>
-          ${job.output ? `<small>Output: ${job.output}</small>` : ''}
+          ${job.output ? `<div class="preview"><img src="${job.output}" alt="${job.prompts?.[0] ?? 'Nano Banana output'}" loading="lazy"></div>` : ''}
+          ${job.output ? `<small>Saved file: ${job.output}</small>` : ''}
           <small>Status: ${job.status}${job.predictionUrl ? ` • <a href="${job.predictionUrl}" target="_blank" rel="noreferrer">view</a>` : ''}</small>
         </article>
       `,
