@@ -62,6 +62,17 @@ function renderGallery(images) {
     .join('');
 }
 
+async function refreshDownloadedList() {
+  if (!downloadedList) return;
+  try {
+    const response = await fetch('/api/downloaded?ts=' + Date.now());
+    const payload = await response.json();
+    renderDownloadedList(payload.downloads || []);
+  } catch (error) {
+    console.error('Failed to refresh downloaded list', error);
+  }
+}
+
 function renderDownloadedList(items) {
   if (!downloadedList) return;
   const availableIds = new Set(items.map((item) => item.id));
@@ -164,8 +175,7 @@ async function refreshJobLog() {
       .join('');
     const galleryItems = jobs.filter((job) => job.output && !job.deleted);
     renderGallery(galleryItems);
-    const downloadedItems = jobs.filter((job) => job.downloaded && job.output && !job.deleted);
-    renderDownloadedList(downloadedItems);
+    refreshDownloadedList();
   } catch (error) {
     console.error('Failed to refresh jobs', error);
   }
@@ -252,6 +262,7 @@ async function triggerDownload(jobId) {
     anchor.remove();
     setStatus('Download started.');
     refreshJobLog();
+    refreshDownloadedList();
   } catch (error) {
     console.error(error);
     setStatus('Download failed. Check console.');
@@ -266,6 +277,7 @@ async function deleteJobAsset(jobId) {
     if (!response.ok) throw new Error(payload.error || 'Deletion failed');
     setStatus('Asset deleted.');
     refreshJobLog();
+    refreshDownloadedList();
   } catch (error) {
     console.error(error);
     setStatus('Deletion failed. Check console.');
@@ -322,7 +334,7 @@ galleryGrid.addEventListener('click', async (event) => {
   }
 });
 
-downloadedList.addEventListener('change', (event) => {
+downloadedList?.addEventListener('change', (event) => {
   const checkbox = event.target.closest('input[type="checkbox"][data-id]');
   if (!checkbox) return;
   const id = checkbox.dataset.id;
@@ -335,7 +347,7 @@ downloadedList.addEventListener('change', (event) => {
   deleteSelectedBtn.disabled = selectedDownloads.size === 0;
 });
 
-selectAllDownloadedBtn.addEventListener('click', () => {
+selectAllDownloadedBtn?.addEventListener('click', () => {
   const checkboxes = downloadedList.querySelectorAll('input[type="checkbox"][data-id]');
   const allChecked = checkboxes.length > 0 && Array.from(checkboxes).every((cb) => cb.checked);
   checkboxes.forEach((cb) => {

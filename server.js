@@ -11,6 +11,7 @@ const PORT = process.env.PORT || 3001;
 const prompts = require('./prompts.json');
 const jobHistory = [];
 const outputsDir = path.join(__dirname, 'outputs');
+const downloadsDir = path.join(__dirname, 'downloads');
 const workspaceRoot = path.resolve(__dirname, '..', '..');
 const scriptPath = path.join(workspaceRoot, 'skills', 'nano-banana-pro', 'scripts', 'generate_image.py');
 const secretFilePath = path.join(process.env.HOME || '', '.openclaw', 'api.txt');
@@ -22,6 +23,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/outputs', express.static(outputsDir));
 
 fs.mkdir(outputsDir, { recursive: true }).catch(() => {});
+fs.mkdir(downloadsDir, { recursive: true }).catch(() => {});
+app.use('/downloads', express.static(downloadsDir));
 
 function samplePrompts() {
   const copy = prompts.slice();
@@ -331,20 +334,79 @@ app.post('/api/job/:id/upload', async (req, res) => {
   }
 });
 
-app.post('/api/job/:id/download', (req, res) => {
+app.post('/api/job/:id/download', async (req, res) => {
   const job = findJob(req.params.id);
   if (!job || !job.output) {
-    return res.status(404).json({ error: 'Job not found or has no output.' });
+    return res.status(404).json({ error: 'Job not found or not yet produced an output.' });
   }
   if (job.deleted) {
-    return res.status(400).json({ error: 'Asset already deleted.' });
+    return res.status(400).json({ error: 'Cannot download a deleted asset.' });
   }
-  updateJob(job.id, {
-    downloaded: true,
-    detail: 'Downloaded by user',
-    downloadedAt: new Date().toISOString(),
-  });
-  return res.json({ url: job.downloadUrl });
+  try {
+    const src = path.join(__dirname, job.output);
+    const destName = `${job.id}-${path.basename(job.output)}`;
+    const destPath = path.join(downloadsDir, destName);
+    await fs.copyFile(src, destPath);
+    const downloadUrl = `/downloads/${destName}`;
+    updateJob(job.id, {
+      downloaded: true,
+      detail: 'Downloaded by user',
+      downloadedAt: new Date().toISOString(),
+      downloadUrl,
+    });
+    return res.json({ url: downloadUrl });
+  } catch (error) {
+    console.error('Download failed', error);
+    return res.status(500).json({ error: 'Unable to copy asset for download.', detail: error.message });
+  }
+});
+
+
+app.get('/api/downloaded', async (req, res) => {
+  try {
+    const files = await fs.readdir(downloadsDir);
+    const entries = files
+      .filter((file) => file.match(/\.(png|jpg|jpeg|webp)$/i))
+      .map((file) => {
+        const job = jobHistory.find((jobEntry) => jobEntry.downloadUrl?.endsWith(`/${file}`));
+        return {
+          id: job?.id ?? file,
+          label: job?.prompts?.[0] || file,
+          detail: job?.detail || 'Downloaded',
+          url: `/downloads/${file}`,
+          jobId: job?.id || null,
+          downloadedAt: job?.downloadedAt,
+        };
+      });
+    return res.json({ downloads: entries });
+  } catch (error) {
+    console.error('Unable to list downloaded assets', error);
+    return res.status(500).json({ error: 'Unable to list downloaded assets.', detail: error.message });
+  }
+});
+
+
+app.get('/api/downloaded', async (req, res) => {
+  try {
+    const files = await fs.readdir(downloadsDir);
+    const entries = files
+      .filter((file) => file.match(/\.(png|jpg|jpeg|webp)$/i))
+      .map((file) => {
+        const job = jobHistory.find((jobEntry) => jobEntry.downloadUrl?.endsWith(`/${file}`));
+        return {
+          id: job?.id ?? file,
+          label: job?.prompts?.[0] || file,
+          detail: job?.detail || 'Downloaded',
+          url: `/downloads/${file}`,
+          jobId: job?.id || null,
+          downloadedAt: job?.downloadedAt,
+        };
+      });
+    return res.json({ downloads: entries });
+  } catch (error) {
+    console.error('Unable to list downloaded assets', error);
+    return res.status(500).json({ error: 'Unable to list downloaded assets.', detail: error.message });
+  }
 });
 
 app.delete('/api/job/:id', async (req, res) => {
