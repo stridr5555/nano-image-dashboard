@@ -62,6 +62,7 @@ export GEMINI_IMAGE_MODEL=gemini-2.5-pro-image-preview
 - Designed with card-based layout, subtle gradients, and pill buttons inspired by the `superdesign` guidelines.
 - Responsive grid ensures four prompts stay readable on desktop and compress gracefully to mobile breakpoints.
 - Status area and job log surface the latest actions.
+- The generated-gallery panel shows thumbnails of successful generations, complete with download/upload/delete controls, so the log stays focused on status while the gallery highlights art.
 
 ## Next steps
 
