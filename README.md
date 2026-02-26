@@ -3,7 +3,7 @@
 UX/Branding cues from the `superdesign` skill (layered cards, neo-noir color palette, clipped buttons) and backend hardening inspired by the `backend` skill's error-handling/observability mindset. This dashboard packages:
 
 - Four curated Midjourney-style prompts refreshed on demand.
-- A "Generate from prompts" action that queues a Nano Banana image build.
+- A "Generate from prompts" action that queues a Nano Banana image build powered by Gemini 2.5.
 - A Replicate-powered upscaler endpoint using the Real-ESRGAN model.
 - A headed-browser trigger that fires `mcporter`/Chrome DevTools to land on the Adobe Stock contributor page.
 
@@ -40,6 +40,14 @@ export REPLICATE_API_TOKEN=REPLICATE_TOKEN_FROM_API.TXT
 ```
 
 The Nano Banana CLI (via `uv run scripts`) is expected to be wired separately when you process queued prompts. The dashboard simply logs the chosen prompts for the CLI to pick up.
+
+### Gemini 2.5 model
+
+The Gemini generation script defaults to the `gemini-2.5-pro-image-preview` model. If you need to try a different Gemini variant, set the `GEMINI_IMAGE_MODEL` environment variable before running the script:
+
+```bash
+export GEMINI_IMAGE_MODEL=gemini-2.5-pro-image-preview
+```
 
 ## Automation hooks
 
