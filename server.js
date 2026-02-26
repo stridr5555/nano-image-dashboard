@@ -41,7 +41,52 @@ app.use('/outputs', express.static(outputsDir));
 
 fs.mkdir(outputsDir, { recursive: true }).catch(() => {});
 
+const ADOBE_MIN_PIXELS = 4_000_000;
+
+async function getImageDimensions(filePath) {
+  const fd = await fs.open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(64);
+    await fd.read(header, 0, 64, 0);
+
+    // PNG
+    if (header.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+      const width = header.readUInt32BE(16);
+      const height = header.readUInt32BE(20);
+      return { width, height };
+    }
+
+    // JPEG
+    if (header[0] === 0xff && header[1] === 0xd8) {
+      const full = await fs.readFile(filePath);
+      let offset = 2;
+      while (offset < full.length) {
+        if (full[offset] !== 0xff) { offset += 1; continue; }
+        const marker = full[offset + 1];
+        const blockLen = full.readUInt16BE(offset + 2);
+        if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+          const height = full.readUInt16BE(offset + 5);
+          const width = full.readUInt16BE(offset + 7);
+          return { width, height };
+        }
+        offset += 2 + blockLen;
+      }
+    }
+
+    return { width: null, height: null };
+  } finally {
+    await fd.close();
+  }
+}
+
+function adobeReadiness(width, height) {
+  if (!width || !height) return { pixels: null, meetsAdobeMin: false };
+  const pixels = width * height;
+  return { pixels, meetsAdobeMin: pixels >= ADOBE_MIN_PIXELS };
+}
+
 function samplePrompts() {
+
   const copy = prompts.slice();
   for (let i = copy.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -436,23 +481,33 @@ app.post('/api/job/:id/download', (req, res) => {
 app.get('/api/outputs', async (req, res) => {
   try {
     const files = await fs.readdir(outputsDir);
-    const entries = files
-      .filter((file) => file.match(/\.(png|jpg|jpeg|webp)$/i))
-      .map((file) => {
-        const job = jobHistory.find((jobEntry) => jobEntry.output?.endsWith(`/${file}`));
-        return {
-          id: job?.id ?? file,
-          prompt: job?.prompts?.[0] || file,
-          detail: job?.detail || 'Generated',
-          status: job?.status || 'generated',
-          url: `/outputs/${file}`,
-          file,
-          jobId: job?.id || null,
-          deleted: job?.deleted || false,
-          downloaded: job?.downloaded || false,
-          isUpscaled: file.toLowerCase().includes('upscaled'),
-        };
+    const imageFiles = files.filter((file) => file.match(/\.(png|jpg|jpeg|webp)$/i));
+    const entries = [];
+
+    for (const file of imageFiles) {
+      const job = jobHistory.find((jobEntry) => jobEntry.output?.endsWith(`/${file}`));
+      const absolute = path.join(outputsDir, file);
+      const dims = await getImageDimensions(absolute);
+      const readiness = adobeReadiness(dims.width, dims.height);
+      entries.push({
+        id: job?.id ?? file,
+        prompt: job?.prompts?.[0] || file,
+        detail: job?.detail || 'Generated',
+        status: job?.status || 'generated',
+        url: `/outputs/${file}`,
+        file,
+        jobId: job?.id || null,
+        deleted: job?.deleted || false,
+        downloaded: job?.downloaded || false,
+        isUpscaled: file.toLowerCase().includes('upscaled'),
+        width: dims.width,
+        height: dims.height,
+        pixels: readiness.pixels,
+        meetsAdobeMin: readiness.meetsAdobeMin,
+        adobeMinPixels: ADOBE_MIN_PIXELS,
       });
+    }
+
     return res.json({ outputs: entries });
   } catch (error) {
     console.error('Unable to list outputs', error);

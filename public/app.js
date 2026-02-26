@@ -61,13 +61,14 @@ function renderGallery(items) {
         const imageUrl = item.downloadUrl || item.url;
         const label = item.prompt || item.prompts?.[0] || 'Generated image';
         const detail = item.detail || item.status || 'Generated';
+        const resolutionText = item.width && item.height ? `${item.width}×${item.height}` : 'Resolution unknown';
         const identifier = item.jobId ? `job-${item.jobId}` : `file-${item.file || item.id}`;
         const deleteType = item.jobId ? 'job' : 'file';
         galleryCache.set(identifier, { ...item, id: identifier, deleteType, isUpscaled: item.isUpscaled });
         existingIds.add(identifier);
         const isSelected = selectedGallery.has(identifier);
         const showUpload = item.isUpscaled && !item.deleted && (item.jobId || item.file);
-        const showUpscale = !item.isUpscaled && (item.jobId || item.file) && !item.deleted;
+        const showUpscale = !item.isUpscaled && !item.meetsAdobeMin && (item.jobId || item.file) && !item.deleted;
         return `
       <article class="gallery-card${isSelected ? ' selected' : ''}" data-item-id="${identifier}" data-job-id="${item.jobId || ''}" data-file-name="${item.file || ''}">
         <img src="${imageUrl}" alt="${label}" loading="lazy">
@@ -75,9 +76,10 @@ function renderGallery(items) {
           <div class="job-badges">
             ${item.downloaded ? '<span class="tag downloaded">Downloaded</span>' : ''}
             ${item.deleted ? '<span class="tag deleted">Deleted</span>' : ''}
+            ${item.meetsAdobeMin ? '<span class="tag downloaded">Adobe-ready</span>' : '<span class="tag deleted">Needs upscale</span>'}
           </div>
           <strong>${label}</strong>
-          <small>${detail}</small>
+          <small>${detail} • ${resolutionText}</small>
           <div class="gallery-actions">
             ${showUpscale ? `<button class="btn ghost upscale-btn" data-action="upscale" data-id="${item.jobId || item.file}">Upscale</button>` : ''}
             ${showUpload ? `<button class="btn upload-btn" data-action="upload" data-type="${item.jobId ? 'job' : 'file'}" data-id="${item.jobId || item.file}">Upload</button>` : ''}
@@ -101,7 +103,7 @@ function updateBatchButtons() {
   if (!batchUploadBtn || !batchDeleteBtn || !batchUpscaleBtn) return;
   const selectedItems = Array.from(selectedGallery).map((id) => galleryCache.get(id)).filter(Boolean);
   const canUpload = selectedItems.some((item) => item?.isUpscaled && !item.deleted && (item.jobId || item.file));
-  const canUpscale = selectedItems.some((item) => item && !item.isUpscaled && !item.deleted && (item.jobId || item.file));
+  const canUpscale = selectedItems.some((item) => item && !item.isUpscaled && !item.meetsAdobeMin && !item.deleted && (item.jobId || item.file));
   batchUploadBtn.disabled = !canUpload;
   batchUpscaleBtn.disabled = !canUpscale;
   batchDeleteBtn.disabled = selectedItems.length === 0;
