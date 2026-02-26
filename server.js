@@ -209,21 +209,31 @@ app.post('/api/generate', async (req, res) => {
       });
     });
     child.on('close', (code) => {
-      console.log(`Nano Banana job ${jobId} exited ${code}. stdout:
+      (async () => {
+        console.log(`Nano Banana job ${jobId} exited ${code}. stdout:
 ${stdoutLog}
 stderr:
 ${stderrLog}`);
-      const success = code === 0;
-      const relative = success ? path.relative(__dirname, outputFile) : undefined;
-      const downloadUrl = success ? `/outputs/${path.basename(relative)}` : null;
-      updateJob(jobId, {
-        status: success ? 'completed' : 'failed',
-        detail: success ? `Saved ${filename}` : `Error (exit ${code})`,
-        log: stdoutLog || stderrLog,
-        output: relative,
-        downloadUrl,
-        timestamp: new Date().toISOString(),
-      });
+        let success = code === 0;
+        if (success) {
+          try {
+            await fs.access(outputFile);
+          } catch (error) {
+            console.warn('Expected output file missing', error.message);
+            success = false;
+          }
+        }
+        const relative = success ? path.relative(__dirname, outputFile) : undefined;
+        const downloadUrl = success ? `/outputs/${path.basename(relative)}` : null;
+        updateJob(jobId, {
+          status: success ? 'completed' : 'failed',
+          detail: success ? `Saved ${filename}` : `Error (exit ${code})`,
+          log: stdoutLog || stderrLog,
+          output: relative,
+          downloadUrl,
+          timestamp: new Date().toISOString(),
+        });
+      })();
     });
   });
 
