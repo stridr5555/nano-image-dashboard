@@ -47,15 +47,23 @@ async function refreshJobLog() {
     jobLog.innerHTML = jobs
       .map(
         (job) => `
-        <article class="job-card">
+        <article class="job-card ${job.deleted ? 'job-deleted' : ''}">
           <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
             <strong>${job.type} • ${job.id}</strong>
             <small>${new Date(job.timestamp).toLocaleTimeString()}</small>
           </div>
           <div>${job.prompts?.length ? job.prompts.join(', ') : '—'}</div>
+          <div class="job-badges">
+            ${job.downloaded ? '<span class="tag downloaded">Downloaded</span>' : ''}
+            ${job.deleted ? '<span class="tag deleted">Deleted</span>' : ''}
+          </div>
           <small>${job.detail || '—'}</small>
-          ${job.output ? `<div class="preview"><img src="${job.output}" alt="${job.prompts?.[0] ?? 'Nano Banana output'}" loading="lazy"></div>` : ''}
-          ${job.output ? `<small>Saved file: ${job.output}</small>` : ''}
+          ${job.output && !job.deleted ? `<div class="preview"><img src="${job.downloadUrl}" alt="${job.prompts?.[0] ?? 'Nano Banana output'}" loading="lazy"></div>` : ''}
+          ${job.output ? `<small>${job.deleted ? 'Asset removed' : `Saved file: ${job.output}`}</small>` : ''}
+          <div class="job-actions">
+            ${job.output && !job.deleted ? `<button class="btn download-btn" data-id="${job.id}">Download</button><button class="btn upload-btn" data-id="${job.id}">Upload</button>` : ''}
+            ${job.output && !job.deleted ? `<button class="btn ghost delete-btn" data-id="${job.id}">Delete</button>` : ''}
+          </div>
           <small>Status: ${job.status}${job.predictionUrl ? ` • <a href="${job.predictionUrl}" target="_blank" rel="noreferrer">view</a>` : ''}</small>
         </article>
       `,
@@ -130,6 +138,60 @@ uploadButton.addEventListener('click', async () => {
   } catch (error) {
     console.error(error);
     setStatus('Upload automation failed. Check console.');
+  }
+});
+
+jobLog.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-id]');
+  if (!button) return;
+  const jobId = button.dataset.id;
+  if (button.classList.contains('download-btn')) {
+    setStatus('Preparing download…');
+    try {
+      const response = await fetch(`/api/job/${jobId}/download`, { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Download failed');
+      const anchor = document.createElement('a');
+      anchor.href = result.url;
+      anchor.download = result.url.split('/').pop();
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setStatus('Download started.');
+      refreshJobLog();
+    } catch (error) {
+      console.error(error);
+      setStatus('Download failed. Check console.');
+    }
+    return;
+  }
+  if (button.classList.contains('delete-btn')) {
+    setStatus('Deleting asset…');
+    try {
+      const response = await fetch(`/api/job/${jobId}`, { method: 'DELETE' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Deletion failed');
+      setStatus('Asset deleted.');
+      refreshJobLog();
+    } catch (error) {
+      console.error(error);
+      setStatus('Deletion failed. Check console.');
+    }
+    return;
+  }
+  if (button.classList.contains('upload-btn')) {
+    setStatus('Triggering upload flow…');
+    try {
+      const response = await fetch(`/api/job/${jobId}/upload`, { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Upload failed');
+      setStatus('Upload flow triggered.');
+      refreshJobLog();
+    } catch (error) {
+      console.error(error);
+      setStatus('Upload automation failed. Check console.');
+    }
+    return;
   }
 });
 

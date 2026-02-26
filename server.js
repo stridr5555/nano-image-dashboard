@@ -75,6 +75,10 @@ async function resolveReplicateToken() {
   return resolveSecret('Replicate', 'REPLICATE_API_TOKEN');
 }
 
+function findJob(id) {
+  return jobHistory.find((job) => job.id === id);
+}
+
 app.get('/api/prompts', (req, res) => {
   res.json({ prompts: samplePrompts() });
 });
@@ -113,6 +117,9 @@ app.post('/api/generate', async (req, res) => {
       status: 'scheduled',
       detail: 'Queued for Nano Banana generation',
       filename,
+      downloaded: false,
+      deleted: false,
+      downloadUrl: null,
     };
     pushJob(job);
     queuedJobs.push(job);
@@ -156,11 +163,14 @@ ${stdoutLog}
 stderr:
 ${stderrLog}`);
       const success = code === 0;
+      const relative = success ? path.relative(__dirname, outputFile) : undefined;
+      const downloadUrl = success ? `/outputs/${path.basename(relative)}` : null;
       updateJob(jobId, {
         status: success ? 'completed' : 'failed',
         detail: success ? `Saved ${filename}` : `Error (exit ${code})`,
         log: stdoutLog || stderrLog,
-        output: success ? path.relative(__dirname, outputFile) : undefined,
+        output: relative,
+        downloadUrl,
         timestamp: new Date().toISOString(),
       });
     });
@@ -217,36 +227,89 @@ app.post('/api/upscale', async (req, res) => {
   }
 });
 
-app.post('/api/upload', (req, res) => {
+function openUploadBrowser(job, label, res) {
   const target = 'https://stock.adobe.com/contributor';
   exec(
     `cd /home/strid3r/.openclaw/workspace && mcporter call chrome-devtools.navigate_page url=${target}`,
     { timeout: 20000 },
     (error, stdout, stderr) => {
       if (error) {
-        console.error('Upload automation failed:', error, stderr);
-        const failureJob = {
-          id: crypto.randomBytes(4).toString('hex'),
-          type: 'upload',
-          prompts: [target],
-          timestamp: new Date().toISOString(),
-          status: 'failed',
+        console.error('Upload automation failed:', job.id, error, stderr);
+        updateJob(job.id, {
+          status: 'upload-failed',
           detail: stderr || error.message,
-        };
-        pushJob(failureJob);
+        });
         return res.status(500).json({ error: 'Headed browser upload failed.', detail: stderr || error.message });
       }
-      const successJob = {
-        id: crypto.randomBytes(4).toString('hex'),
-        type: 'upload',
-        prompts: [target],
-        timestamp: new Date().toISOString(),
-        status: 'triggered',
-      };
-      pushJob(successJob);
+      updateJob(job.id, {
+        status: 'upload-triggered',
+        detail: `Headed browser opened for ${label}`,
+      });
       return res.json({ message: 'Headed browser launched to Adobe Stock Contributor.', stdout });
     },
   );
+}
+
+app.post('/api/upload', (req, res) => {
+  const placeholderJob = {
+    id: crypto.randomBytes(4).toString('hex'),
+    type: 'upload',
+    prompts: ['Adobe Stock contributor'],
+    timestamp: new Date().toISOString(),
+    status: 'pending',
+    detail: 'General upload trigger',
+  };
+  pushJob(placeholderJob);
+  openUploadBrowser(placeholderJob, 'general upload', res);
+});
+
+app.post('/api/job/:id/upload', (req, res) => {
+  const job = findJob(req.params.id);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
+  if (!job.output || job.deleted) {
+    return res.status(400).json({ error: 'Job has no available asset to upload.' });
+  }
+  openUploadBrowser(job, job.prompts?.[0] || 'selected asset', res);
+});
+
+app.post('/api/job/:id/download', (req, res) => {
+  const job = findJob(req.params.id);
+  if (!job || !job.output) {
+    return res.status(404).json({ error: 'Job not found or has no output.' });
+  }
+  if (job.deleted) {
+    return res.status(400).json({ error: 'Asset already deleted.' });
+  }
+  updateJob(job.id, {
+    downloaded: true,
+    detail: 'Downloaded by user',
+    downloadedAt: new Date().toISOString(),
+  });
+  return res.json({ url: job.downloadUrl });
+});
+
+app.delete('/api/job/:id', async (req, res) => {
+  const job = findJob(req.params.id);
+  if (!job || !job.output) {
+    return res.status(404).json({ error: 'Job not found or has no output.' });
+  }
+  if (job.deleted) {
+    return res.status(400).json({ error: 'Asset already deleted.' });
+  }
+  const absolutePath = path.join(__dirname, job.output);
+  try {
+    await fs.unlink(absolutePath);
+  } catch (error) {
+    console.warn('Failed to delete asset', absolutePath, error.message);
+  }
+  updateJob(job.id, {
+    deleted: true,
+    detail: 'Deleted by user',
+    deletedAt: new Date().toISOString(),
+  });
+  return res.json({ message: 'Asset deleted.', id: job.id });
 });
 
 app.listen(PORT, () => {
