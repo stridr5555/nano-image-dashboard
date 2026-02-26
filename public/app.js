@@ -385,5 +385,5 @@ refreshGalleryButton.addEventListener('click', () => {
 window.addEventListener('load', () => {
   loadPrompts();
   refreshJobLog();
-  setInterval(refreshJobLog, 60000);
+  setInterval(refreshJobLog, 5000);
 });
