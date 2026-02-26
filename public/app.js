@@ -29,34 +29,52 @@ function renderPrompts(prompts) {
   });
 }
 
-function renderGallery(images) {
+async function refreshOutputs() {
   if (!galleryGrid) return;
-  if (!images.length) {
+  try {
+    const response = await fetch('/api/outputs?ts=' + Date.now());
+    const payload = await response.json();
+    renderGallery(payload.outputs || []);
+  } catch (error) {
+    console.error('Failed to refresh outputs', error);
+  }
+}
+
+function renderGallery(items) {
+  if (!galleryGrid) return;
+  if (!items.length) {
     galleryGrid.innerHTML = '<p class="helper">No finished images yet.</p>';
     return;
   }
-  galleryGrid.innerHTML = images
+  galleryGrid.innerHTML = items
     .map(
-      (job) => `
+      (item) => {
+        const imageUrl = item.downloadUrl || item.url;
+        const label = item.prompt || item.prompts?.[0] || 'Generated image';
+        const detail = item.detail || item.status || 'Generated';
+        const targetId = item.jobId || item.id;
+        const canDelete = item.jobId && !item.deleted;
+        return `
       <article class="gallery-card">
-        <img src="${job.downloadUrl}" alt="${job.prompts?.[0] ?? 'Nano Banana output'}" loading="lazy">
+        <img src="${imageUrl}" alt="${label}" loading="lazy">
         <div class="gallery-meta">
           <div class="job-badges">
-            ${job.downloaded ? '<span class="tag downloaded">Downloaded</span>' : ''}
-            ${job.deleted ? '<span class="tag deleted">Deleted</span>' : ''}
+            ${item.downloaded ? '<span class="tag downloaded">Downloaded</span>' : ''}
+            ${item.deleted ? '<span class="tag deleted">Deleted</span>' : ''}
           </div>
-          <strong>${job.prompts?.[0] ?? 'Generated image'}</strong>
-          <small>${job.detail || 'Ready to use'}</small>
+          <strong>${label}</strong>
+          <small>${detail}</small>
           <div class="gallery-actions">
-            ${job.deleted ? '' : `<button class="btn upload-btn" data-id="${job.id}">Upload</button><button class="btn ghost delete-btn" data-id="${job.id}">Delete</button>`}
+            ${targetId && !item.deleted ? `<button class="btn upload-btn" data-id="${targetId}">Upload</button>` : ''}
+            ${canDelete ? `<button class="btn ghost delete-btn" data-id="${targetId}">Delete</button>` : ''}
           </div>
         </div>
       </article>
-    `,
+    `;
+      },
     )
     .join('');
 }
-
 async function loadPrompts() {
   setStatus('Loading curated prompts…');
   try {
@@ -98,8 +116,7 @@ async function refreshJobLog() {
       `,
       )
       .join('');
-    const galleryItems = jobs.filter((job) => job.output && !job.deleted);
-    renderGallery(galleryItems);
+    refreshOutputs();
   } catch (error) {
     console.error('Failed to refresh jobs', error);
   }

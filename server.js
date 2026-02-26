@@ -357,6 +357,31 @@ app.post('/api/job/:id/download', (req, res) => {
   return res.json({ url: job.downloadUrl });
 });
 
+app.get('/api/outputs', async (req, res) => {
+  try {
+    const files = await fs.readdir(outputsDir);
+    const entries = files
+      .filter((file) => file.match(/\.(png|jpg|jpeg|webp)$/i))
+      .map((file) => {
+        const job = jobHistory.find((jobEntry) => jobEntry.output?.endsWith(`/${file}`));
+        return {
+          id: job?.id ?? file,
+          prompt: job?.prompts?.[0] || file,
+          detail: job?.detail || 'Generated',
+          status: job?.status || 'generated',
+          url: `/outputs/${file}`,
+          jobId: job?.id || null,
+          deleted: job?.deleted || false,
+          downloaded: job?.downloaded || false,
+        };
+      });
+    return res.json({ outputs: entries });
+  } catch (error) {
+    console.error('Unable to list outputs', error);
+    return res.status(500).json({ error: 'Unable to list outputs.', detail: error.message });
+  }
+});
+
 app.delete('/api/job/:id', async (req, res) => {
   const job = findJob(req.params.id);
   if (!job || !job.output) {
