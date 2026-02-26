@@ -1,0 +1,72 @@
+[
+  {
+    "id": "urban-snowfall",
+    "source": "Midjourney prompt library",
+    "description": "Hyperrealistic night scene of Tokyo back alley after snowfall, neon reflections, cinematic bokeh, Unreal Engine, 8k",
+    "tags": ["cyberpunk", "city", "night"],
+    "mood": "moody"
+  },
+  {
+    "id": "orbital-sculpture",
+    "source": "MJ prompt compendium",
+    "description": "Sculptural space habitat floating above Earth, light streaks, dramatic lens flare, volumetric fog, ArtStation detail",
+    "tags": ["space", "sculpture", "detail"],
+    "mood": "epic"
+  },
+  {
+    "id": "forest-lights",
+    "source": "Midjourney Expo",
+    "description": "Bioluminescent forest with floating glass lanterns, warm hues, cinematic depth, 4K still, soft rim lighting",
+    "tags": ["nature", "lights", "surreal"],
+    "mood": "dreamy"
+  },
+  {
+    "id": "desert-ruins",
+    "source": "PromptSite Archive",
+    "description": "Ancient desert ruins reimagined as organic tech, dust storm, warm palette, photorealism, Leica lens",
+    "tags": ["desert", "architecture", "tech"],
+    "mood": "mysterious"
+  },
+  {
+    "id": "aurora-submerged",
+    "source": "PromptSite Vault",
+    "description": "Underwater city lit by aurora-like energy, glass domes, wide angle, 12k, subtle film grain",
+    "tags": ["underwater", "futuristic", "light"],
+    "mood": "serene"
+  },
+  {
+    "id": "mecha-garden",
+    "source": "Midjourney curated",
+    "description": "Ornate mecha gardener pruning neon bonsai on rooftop, soft volumetric backlight, cinematic depth of field",
+    "tags": ["mecha", "garden", "cinematic"],
+    "mood": "playful"
+  },
+  {
+    "id": "chalk-memories",
+    "source": "Community prompt stash",
+    "description": "Chalk illustration of childhood memories on black pavement, pastel chalk splashes, overhead view, 6k",
+    "tags": ["illustration", "nostalgia", "texture"],
+    "mood": "nostalgic"
+  },
+  {
+    "id": "orbital-garden",
+    "source": "Midjourney Lab",
+    "description": "Futuristic botanical greenhouse on a space elevator, reflective surfaces, volumetric sunlight, crisp detail",
+    "tags": ["botanical", "space", "clean"],
+    "mood": "optimistic"
+  },
+  {
+    "id": "cyber-symphony",
+    "source": "PromptSite Ultra",
+    "description": "Synesthetic concert hall with floating instruments, neon plasma, motion blur, glass materials, dramatic lighting",
+    "tags": ["music", "cyberpunk", "motion"],
+    "mood": "energetic"
+  },
+  {
+    "id": "atlas-wake",
+    "source": "MJ prompt vault",
+    "description": "Titanic ocean liner made of crystal sailing through aurora, reflective hull, wide panoramic framing, subtle haze",
+    "tags": ["ocean", "vessel", "vast"],
+    "mood": "majestic"
+  }
+]

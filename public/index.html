@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nano Banana Prompt Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <p class="eyebrow">Nano Banana</p>
+        <h1>Four-prompt generator + Replicate upscaler</h1>
+        <p>
+          Select the prompts you love, refresh suggestions from curated midjourney vaults,
+          and trigger Nano Banana generation. Upscale with Replicate or upload via the CDP-powered browser
+          when you are ready to move to Adobe Stock.
+        </p>
+      </header>
+
+      <main>
+        <section class="panel" aria-labelledby="prompt-grid-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Prompt library</p>
+              <h2 id="prompt-grid-title">Refreshable Midjourney picks</h2>
+            </div>
+            <button class="ghost" id="refreshPrompts">Refresh prompts</button>
+          </div>
+          <div class="prompt-grid" id="promptGrid"></div>
+          <div class="actions">
+            <button id="generatePrompts">Generate from prompts</button>
+            <div class="helper">Selected prompts will be sent to the Nano Banana CLI.</div>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="jobs-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Workflow jobs</p>
+              <h2 id="jobs-title">What just happened?</h2>
+            </div>
+            <div class="button-group">
+              <button id="upscaleBtn">Replicate upscale</button>
+              <button id="uploadBtn">Upload via headed browser</button>
+            </div>
+          </div>
+          <div class="status" id="statusLine">Idle. No jobs yet.</div>
+          <div class="job-log" id="jobLog"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
