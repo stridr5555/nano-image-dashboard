@@ -7,6 +7,11 @@ const statusLine = document.getElementById('statusLine');
 const jobLog = document.getElementById('jobLog');
 const galleryGrid = document.getElementById('galleryGrid');
 const refreshGalleryButton = document.getElementById('refreshGallery');
+const downloadedList = document.getElementById('downloadedList');
+const uploadSelectedBtn = document.getElementById('uploadSelected');
+const deleteSelectedBtn = document.getElementById('deleteSelected');
+const selectAllDownloadedBtn = document.getElementById('selectAllDownloaded');
+let selectedDownloads = new Set();
 
 function setStatus(text) {
   statusLine.textContent = text;
@@ -14,7 +19,7 @@ function setStatus(text) {
 
 function renderPrompts(prompts) {
   promptGrid.innerHTML = '';
-  prompts.forEach((prompt, index) => {
+  prompts.forEach((prompt) => {
     const card = document.createElement('label');
     card.className = 'prompt-card';
     card.innerHTML = `
@@ -27,6 +32,65 @@ function renderPrompts(prompts) {
     `;
     promptGrid.appendChild(card);
   });
+}
+
+function renderGallery(images) {
+  if (!galleryGrid) return;
+  if (!images.length) {
+    galleryGrid.innerHTML = '<p class="helper">No finished images yet.</p>';
+    return;
+  }
+  galleryGrid.innerHTML = images
+    .map(
+      (job) => `
+      <article class="gallery-card">
+        <img src="${job.downloadUrl}" alt="${job.prompts?.[0] ?? 'Nano Banana output'}" loading="lazy">
+        <div class="gallery-meta">
+          <div class="job-badges">
+            ${job.downloaded ? '<span class="tag downloaded">Downloaded</span>' : ''}
+            ${job.deleted ? '<span class="tag deleted">Deleted</span>' : ''}
+          </div>
+          <strong>${job.prompts?.[0] ?? 'Generated image'}</strong>
+          <small>${job.detail || 'Ready to use'}</small>
+          <div class="gallery-actions">
+            ${job.deleted ? '' : `<button class="btn download-btn" data-id="${job.id}">Download</button><button class="btn upload-btn" data-id="${job.id}">Upload</button><button class="btn ghost delete-btn" data-id="${job.id}">Delete</button>`}
+          </div>
+        </div>
+      </article>
+    `,
+    )
+    .join('');
+}
+
+function renderDownloadedList(items) {
+  if (!downloadedList) return;
+  const availableIds = new Set(items.map((item) => item.id));
+  selectedDownloads.forEach((id) => {
+    if (!availableIds.has(id)) selectedDownloads.delete(id);
+  });
+  if (!items.length) {
+    downloadedList.innerHTML = '<p class="helper">No downloaded images yet.</p>';
+    selectedDownloads.clear();
+    uploadSelectedBtn.disabled = true;
+    deleteSelectedBtn.disabled = true;
+    return;
+  }
+  downloadedList.innerHTML = items
+    .map(
+      (job) => `
+      <article class="downloaded-card">
+        <input type="checkbox" class="checkbox" data-id="${job.id}" ${selectedDownloads.has(job.id) ? 'checked' : ''} />
+        <img src="${job.downloadUrl}" alt="${job.prompts?.[0] ?? 'Downloaded image'}">
+        <div class="downloaded-info">
+          <strong>${job.prompts?.[0] ?? 'Downloaded output'}</strong>
+          <small class="downloaded-total">${job.detail || 'Downloaded'}</small>
+        </div>
+      </article>
+    `,
+    )
+    .join('');
+  uploadSelectedBtn.disabled = selectedDownloads.size === 0;
+  deleteSelectedBtn.disabled = selectedDownloads.size === 0;
 }
 
 function renderGallery(images) {
@@ -100,6 +164,8 @@ async function refreshJobLog() {
       .join('');
     const galleryItems = jobs.filter((job) => job.output && !job.deleted);
     renderGallery(galleryItems);
+    const downloadedItems = jobs.filter((job) => job.downloaded && job.output && !job.deleted);
+    renderDownloadedList(downloadedItems);
   } catch (error) {
     console.error('Failed to refresh jobs', error);
   }
@@ -253,6 +319,50 @@ galleryGrid.addEventListener('click', async (event) => {
   if (button.classList.contains('upload-btn')) {
     await triggerUpload(jobId);
     return;
+  }
+});
+
+downloadedList.addEventListener('change', (event) => {
+  const checkbox = event.target.closest('input[type="checkbox"][data-id]');
+  if (!checkbox) return;
+  const id = checkbox.dataset.id;
+  if (checkbox.checked) {
+    selectedDownloads.add(id);
+  } else {
+    selectedDownloads.delete(id);
+  }
+  uploadSelectedBtn.disabled = selectedDownloads.size === 0;
+  deleteSelectedBtn.disabled = selectedDownloads.size === 0;
+});
+
+selectAllDownloadedBtn.addEventListener('click', () => {
+  const checkboxes = downloadedList.querySelectorAll('input[type="checkbox"][data-id]');
+  const allChecked = checkboxes.length > 0 && Array.from(checkboxes).every((cb) => cb.checked);
+  checkboxes.forEach((cb) => {
+    cb.checked = !allChecked;
+    if (cb.checked) {
+      selectedDownloads.add(cb.dataset.id);
+    } else {
+      selectedDownloads.delete(cb.dataset.id);
+    }
+  });
+  uploadSelectedBtn.disabled = selectedDownloads.size === 0;
+  deleteSelectedBtn.disabled = selectedDownloads.size === 0;
+});
+
+uploadSelectedBtn?.addEventListener('click', async () => {
+  if (selectedDownloads.size === 0) return;
+  setStatus('Uploading selected assets…');
+  for (const jobId of Array.from(selectedDownloads)) {
+    await triggerUpload(jobId);
+  }
+});
+
+deleteSelectedBtn?.addEventListener('click', async () => {
+  if (selectedDownloads.size === 0) return;
+  setStatus('Deleting selected assets…');
+  for (const jobId of Array.from(selectedDownloads)) {
+    await deleteJobAsset(jobId);
   }
 });
 
