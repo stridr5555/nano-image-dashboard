@@ -7,6 +7,10 @@ const statusLine = document.getElementById('statusLine');
 const jobLog = document.getElementById('jobLog');
 const galleryGrid = document.getElementById('galleryGrid');
 const refreshGalleryButton = document.getElementById('refreshGallery');
+const batchUploadBtn = document.getElementById('batchUpload');
+const batchDeleteBtn = document.getElementById('batchDelete');
+const galleryCache = new Map();
+const selectedGallery = new Set();
 
 function setStatus(text) {
   statusLine.textContent = text;
@@ -42,8 +46,12 @@ async function refreshOutputs() {
 
 function renderGallery(items) {
   if (!galleryGrid) return;
+  galleryCache.clear();
+  const existingIds = new Set();
   if (!items.length) {
     galleryGrid.innerHTML = '<p class="helper">No finished images yet.</p>';
+    selectedGallery.clear();
+    updateBatchButtons();
     return;
   }
   galleryGrid.innerHTML = items
@@ -52,11 +60,13 @@ function renderGallery(items) {
         const imageUrl = item.downloadUrl || item.url;
         const label = item.prompt || item.prompts?.[0] || 'Generated image';
         const detail = item.detail || item.status || 'Generated';
-        const hasJob = Boolean(item.jobId);
-        const deleteTarget = hasJob ? item.jobId : item.file;
-        const deleteType = hasJob ? 'job' : 'file';
+        const identifier = item.jobId ? `job-${item.jobId}` : `file-${item.file || item.id}`;
+        const deleteType = item.jobId ? 'job' : 'file';
+        galleryCache.set(identifier, { ...item, id: identifier, deleteType });
+        existingIds.add(identifier);
+        const isSelected = selectedGallery.has(identifier);
         return `
-      <article class="gallery-card">
+      <article class="gallery-card${isSelected ? ' selected' : ''}" data-item-id="${identifier}" data-job-id="${item.jobId || ''}" data-file-name="${item.file || ''}">
         <img src="${imageUrl}" alt="${label}" loading="lazy">
         <div class="gallery-meta">
           <div class="job-badges">
@@ -66,8 +76,8 @@ function renderGallery(items) {
           <strong>${label}</strong>
           <small>${detail}</small>
           <div class="gallery-actions">
-            ${hasJob && !item.deleted ? `<button class="btn upload-btn" data-id="${item.jobId}">Upload</button>` : ''}
-            ${deleteTarget ? `<button class="btn ghost delete-btn" data-type="${deleteType}" data-id="${deleteTarget}">Delete</button>` : ''}
+            ${item.jobId && !item.deleted ? `<button class="btn upload-btn" data-action="upload" data-id="${item.jobId}">Upload</button>` : ''}
+            ${item.jobId || item.file ? `<button class="btn ghost delete-btn" data-action="delete" data-type="${deleteType}" data-id="${item.jobId || item.file}">Delete</button>` : ''}
           </div>
         </div>
       </article>
@@ -75,7 +85,21 @@ function renderGallery(items) {
       },
     )
     .join('');
+  updateBatchButtons();
 }
+function clearSelection() {
+  selectedGallery.clear();
+  galleryGrid.querySelectorAll('.gallery-card.selected').forEach((card) => card.classList.remove('selected'));
+  updateBatchButtons();
+}
+
+function updateBatchButtons() {
+  if (!batchUploadBtn || !batchDeleteBtn) return;
+  const selectedItems = Array.from(selectedGallery).map((id) => galleryCache.get(id)).filter(Boolean);
+  batchUploadBtn.disabled = selectedItems.length === 0 || selectedItems.every((item) => !item.jobId);
+  batchDeleteBtn.disabled = selectedItems.length === 0;
+}
+
 async function loadPrompts() {
   setStatus('Loading curated prompts…');
   try {
@@ -87,6 +111,18 @@ async function loadPrompts() {
     console.error(error);
     setStatus('Unable to load prompts. Check the console.');
   }
+}
+
+async function deleteOutput(fileName) {
+  if (!fileName) return;
+  setStatus('Deleting output…');
+  const response = await fetch(`/api/output/${encodeURIComponent(fileName)}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || 'Delete failed');
+  }
+  setStatus('Output deleted.');
+  refreshJobLog();
 }
 
 async function refreshJobLog() {
@@ -109,8 +145,8 @@ async function refreshJobLog() {
           <small>${job.detail || '—'}</small>
           ${job.output ? `<small>${job.deleted ? 'Asset removed' : `Saved file: ${job.output}`}</small>` : ''}
           <div class="job-actions">
-            ${job.output && !job.deleted ? `<button class="btn upload-btn" data-id="${job.id}">Upload</button>` : ''}
-            ${job.output && !job.deleted ? `<button class="btn ghost delete-btn" data-id="${job.id}">Delete</button>` : ''}
+            ${job.output && !job.deleted ? `<button class="btn upload-btn" data-action="upload" data-id="${job.id}">Upload</button>` : ''}
+            ${job.output && !job.deleted ? `<button class="btn ghost delete-btn" data-action="delete" data-type="job" data-id="${job.id}">Delete</button>` : ''}
           </div>
           <small>Status: ${job.status}${job.predictionUrl ? ` • <a href="${job.predictionUrl}" target="_blank" rel="noreferrer">view</a>` : ''}</small>
         </article>
@@ -221,6 +257,49 @@ async function deleteJobAsset(jobId) {
   }
 }
 
+function toggleCardSelection(id, card) {
+  if (!id) return;
+  const selected = selectedGallery.has(id);
+  if (selected) {
+    selectedGallery.delete(id);
+  } else {
+    selectedGallery.add(id);
+  }
+  if (card) {
+    card.classList.toggle('selected', !selected);
+  }
+  updateBatchButtons();
+}
+
+async function batchUploadSelection() {
+  if (!batchUploadBtn) return;
+  const selectedItems = Array.from(selectedGallery)
+    .map((id) => galleryCache.get(id))
+    .filter((item) => item && item.jobId && !item.deleted);
+  for (const item of selectedItems) {
+    await triggerUpload(item.jobId);
+  }
+  clearSelection();
+}
+
+async function batchDeleteSelection() {
+  const selectedItems = Array.from(selectedGallery)
+    .map((id) => galleryCache.get(id))
+    .filter(Boolean);
+  for (const item of selectedItems) {
+    if (item.jobId) {
+      await deleteJobAsset(item.jobId);
+    } else if (item.file) {
+      try {
+        await deleteOutput(item.file);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  clearSelection();
+}
+
 async function triggerUpload(jobId) {
   setStatus('Triggering upload flow…');
   try {
@@ -235,26 +314,39 @@ async function triggerUpload(jobId) {
   }
 }
 
-jobLog.addEventListener('click', async (event) => {
+galleryGrid.addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-id]');
-  if (!button) return;
-  const jobId = button.dataset.id;
-  if (button.classList.contains('delete-btn')) {
-    const type = button.dataset.type;
-    if (type === 'job') {
-      await deleteJobAsset(jobId);
-    } else {
-      await deleteOutput(button.dataset.id);
+  if (button) {
+    const action = button.dataset.action;
+    if (action === 'upload') {
+      await triggerUpload(button.dataset.id);
+    } else if (action === 'delete') {
+      const type = button.dataset.type;
+      const target = button.dataset.id;
+      if (type === 'job') {
+        await deleteJobAsset(target);
+      } else {
+        await deleteOutput(target);
+      }
     }
     return;
   }
-  if (button.classList.contains('upload-btn')) {
-    await triggerUpload(jobId);
-    return;
-  }
+  const card = event.target.closest('.gallery-card');
+  if (!card) return;
+  toggleCardSelection(card.dataset.itemId, card);
 });
 
-galleryGrid.addEventListener('click', async (event) => {
+batchUploadBtn?.addEventListener('click', async () => {
+  if (batchUploadBtn.disabled) return;
+  await batchUploadSelection();
+});
+
+batchDeleteBtn?.addEventListener('click', async () => {
+  if (batchDeleteBtn.disabled) return;
+  await batchDeleteSelection();
+});
+
+jobLog.addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-id]');
   if (!button) return;
   const jobId = button.dataset.id;

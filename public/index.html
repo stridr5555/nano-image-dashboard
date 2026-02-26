@@ -55,10 +55,14 @@
               <p class="eyebrow">Gallery</p>
               <h2 id="gallery-title">Generated artwork</h2>
             </div>
-            <button class="ghost" id="refreshGallery">Refresh gallery</button>
+            <div class="button-group">
+              <button id="batchUpload" disabled>Upload selected</button>
+              <button id="batchDelete" class="ghost" disabled>Delete selected</button>
+              <button class="ghost" id="refreshGallery">Refresh gallery</button>
+            </div>
           </div>
           <div class="gallery-grid" id="galleryGrid"></div>
-          <div class="helper">Images reflect successful generations. Use upload or delete buttons to act on them.</div>
+          <div class="helper">Select images directly to enable batch upload or delete.</div>
         </section>
       </main>
     </div>
