@@ -7,6 +7,7 @@ const statusLine = document.getElementById('statusLine');
 const jobLog = document.getElementById('jobLog');
 const galleryGrid = document.getElementById('galleryGrid');
 const refreshGalleryButton = document.getElementById('refreshGallery');
+const batchUpscaleBtn = document.getElementById('batchUpscale');
 const batchUploadBtn = document.getElementById('batchUpload');
 const batchDeleteBtn = document.getElementById('batchDelete');
 const galleryCache = new Map();
@@ -62,9 +63,11 @@ function renderGallery(items) {
         const detail = item.detail || item.status || 'Generated';
         const identifier = item.jobId ? `job-${item.jobId}` : `file-${item.file || item.id}`;
         const deleteType = item.jobId ? 'job' : 'file';
-        galleryCache.set(identifier, { ...item, id: identifier, deleteType });
+        galleryCache.set(identifier, { ...item, id: identifier, deleteType, isUpscaled: item.isUpscaled });
         existingIds.add(identifier);
         const isSelected = selectedGallery.has(identifier);
+        const showUpload = item.isUpscaled && item.jobId && !item.deleted;
+        const showUpscale = !item.isUpscaled && (item.jobId || item.file) && !item.deleted;
         return `
       <article class="gallery-card${isSelected ? ' selected' : ''}" data-item-id="${identifier}" data-job-id="${item.jobId || ''}" data-file-name="${item.file || ''}">
         <img src="${imageUrl}" alt="${label}" loading="lazy">
@@ -76,7 +79,8 @@ function renderGallery(items) {
           <strong>${label}</strong>
           <small>${detail}</small>
           <div class="gallery-actions">
-            ${item.jobId && !item.deleted ? `<button class="btn upload-btn" data-action="upload" data-id="${item.jobId}">Upload</button>` : ''}
+            ${showUpscale ? `<button class="btn ghost upscale-btn" data-action="upscale" data-id="${item.jobId || item.file}">Upscale</button>` : ''}
+            ${showUpload ? `<button class="btn upload-btn" data-action="upload" data-id="${item.jobId}">Upload</button>` : ''}
             ${item.jobId || item.file ? `<button class="btn ghost delete-btn" data-action="delete" data-type="${deleteType}" data-id="${item.jobId || item.file}">Delete</button>` : ''}
           </div>
         </div>
@@ -94,10 +98,19 @@ function clearSelection() {
 }
 
 function updateBatchButtons() {
-  if (!batchUploadBtn || !batchDeleteBtn) return;
+  if (!batchUploadBtn || !batchDeleteBtn || !batchUpscaleBtn) return;
   const selectedItems = Array.from(selectedGallery).map((id) => galleryCache.get(id)).filter(Boolean);
-  batchUploadBtn.disabled = selectedItems.length === 0 || selectedItems.every((item) => !item.jobId);
+  const canUpload = selectedItems.some((item) => item?.isUpscaled && item.jobId && !item.deleted);
+  const canUpscale = selectedItems.some((item) => item && !item.isUpscaled && !item.deleted && (item.jobId || item.file));
+  batchUploadBtn.disabled = !canUpload;
+  batchUpscaleBtn.disabled = !canUpscale;
   batchDeleteBtn.disabled = selectedItems.length === 0;
+}
+
+function clearSelection() {
+  selectedGallery.clear();
+  galleryGrid.querySelectorAll('.gallery-card.selected').forEach((card) => card.classList.remove('selected'));
+  updateBatchButtons();
 }
 
 async function loadPrompts() {
@@ -271,6 +284,17 @@ function toggleCardSelection(id, card) {
   updateBatchButtons();
 }
 
+async function batchUpscaleSelection() {
+  if (!batchUpscaleBtn) return;
+  const selectedItems = Array.from(selectedGallery)
+    .map((id) => galleryCache.get(id))
+    .filter((item) => item && !item.isUpscaled && !item.deleted && (item.jobId || item.file));
+  for (const item of selectedItems) {
+    await triggerUpscale(item.jobId || item.file);
+  }
+  clearSelection();
+}
+
 async function batchUploadSelection() {
   if (!batchUploadBtn) return;
   const selectedItems = Array.from(selectedGallery)
@@ -298,6 +322,28 @@ async function batchDeleteSelection() {
     }
   }
   clearSelection();
+}
+
+async function triggerUpscale(targetId) {
+  if (!targetId) return;
+  const jobId = String(targetId).replace(/^job-/, '');
+  const fileName = jobId === targetId ? null : targetId;
+  const payload = jobId ? { jobId } : { fileName };
+  setStatus('Upscaling...');
+  try {
+    const response = await fetch('/api/upscale', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const payloadJson = await response.json();
+    if (!response.ok) throw new Error(payloadJson.error || 'Upscale failed');
+    setStatus('Upscale complete.');
+    refreshJobLog();
+  } catch (error) {
+    console.error(error);
+    setStatus('Upscale failed. Check console.');
+  }
 }
 
 async function triggerUpload(jobId) {
@@ -339,6 +385,11 @@ galleryGrid.addEventListener('click', async (event) => {
 batchUploadBtn?.addEventListener('click', async () => {
   if (batchUploadBtn.disabled) return;
   await batchUploadSelection();
+});
+
+batchUpscaleBtn?.addEventListener('click', async () => {
+  if (batchUpscaleBtn.disabled) return;
+  await batchUpscaleSelection();
 });
 
 batchDeleteBtn?.addEventListener('click', async () => {

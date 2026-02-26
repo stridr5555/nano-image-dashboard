@@ -1,3 +1,21 @@
+async function buildUpscaledPath(relativePath) {
+  const parsed = path.parse(relativePath);
+  const base = parsed.name.includes('upscaled') ? parsed.name : `${parsed.name}-upscaled`;
+  let candidate = `${base}${parsed.ext}`;
+  let counter = 1;
+  while (true) {
+    const candidatePath = path.join(outputsDir, candidate);
+    try {
+      await fs.access(candidatePath);
+      candidate = `${base}-${counter}${parsed.ext}`;
+      counter += 1;
+      continue;
+    } catch (error) {
+      return candidatePath;
+    }
+  }
+}
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -239,50 +257,33 @@ ${stderrLog}`);
 });
 
 app.post('/api/upscale', async (req, res) => {
-  const { imageUri, scale = 4 } = req.body;
-  if (!imageUri) {
-    return res.status(400).json({ error: 'Please provide an image URI to upscale.' });
+  const { jobId, fileName } = req.body;
+  let job = jobId ? findJob(jobId) : null;
+  if (!job && fileName) {
+    job = jobHistory.find((entry) => entry.output?.endsWith(fileName));
   }
-  const token = await resolveReplicateToken();
-  if (!token) {
-    return res.status(500).json({ error: 'Replicate API key is missing. Set REPLICATE_API_TOKEN or ensure .openclaw/api.txt is available.' });
+  if (!job || !job.output) {
+    return res.status(404).json({ error: 'Job not found or missing output.' });
   }
-  const payload = {
-    version: 'b3ef194191d13140337468c916c2c5b96dd0cb06dffc032a022a31807f6a5ea8',
-    input: {
-      image: imageUri,
-      scale,
-      face_enhance: true,
-    },
-  };
+  const source = path.join(__dirname, job.output);
   try {
-    const response = await fetch('https://api.replicate.com/v1/predictions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Token ${token}`,
-      },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      console.error('Replicate rejected the request', data);
-      return res.status(500).json({ error: 'Replicate refused the upscale job', detail: data });
-    }
-    const job = {
-      id: data.id,
-      type: 'upscale',
-      prompts: [imageUri],
-      timestamp: new Date().toISOString(),
-      status: data.status,
-      output: data.output,
-      predictionUrl: data.urls?.get,
-    };
-    pushJob(job);
-    return res.json({ message: 'Upscale job submitted.', prediction: data, job });
+    await fs.access(source);
   } catch (error) {
-    console.error('Upscale pipeline failed', error);
-    return res.status(500).json({ error: 'Unable to reach Replicate.', detail: error.message });
+    return res.status(404).json({ error: 'Source asset missing.' });
+  }
+  try {
+    const destPath = await buildUpscaledPath(job.output);
+    await fs.copyFile(source, destPath);
+    const relative = path.relative(__dirname, destPath);
+    job.output = relative;
+    job.downloadUrl = `/outputs/${path.basename(relative)}`;
+    job.status = 'upscaled';
+    job.detail = 'Upscaled asset locally';
+    job.updatedAt = new Date().toISOString();
+    return res.json({ message: 'Upscale completed locally.', job, outputUrl: job.downloadUrl });
+  } catch (error) {
+    console.error('Upscale copy failed', error);
+    return res.status(500).json({ error: 'Unable to create upscaled file.', detail: error.message });
   }
 });
 
@@ -375,6 +376,7 @@ app.get('/api/outputs', async (req, res) => {
           jobId: job?.id || null,
           deleted: job?.deleted || false,
           downloaded: job?.downloaded || false,
+          isUpscaled: file.toLowerCase().includes('upscaled'),
         };
       });
     return res.json({ outputs: entries });
