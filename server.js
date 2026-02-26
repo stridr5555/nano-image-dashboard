@@ -11,9 +11,9 @@ const PORT = process.env.PORT || 3001;
 const prompts = require('./prompts.json');
 const jobHistory = [];
 const outputsDir = path.join(__dirname, 'outputs');
-const scriptPath = path.join(__dirname, '..', 'skills', 'nano-banana-pro', 'scripts', 'generate_image.py');
+const workspaceRoot = path.resolve(__dirname, '..', '..');
+const scriptPath = path.join(workspaceRoot, 'skills', 'nano-banana-pro', 'scripts', 'generate_image.py');
 const secretFilePath = path.join(process.env.HOME || '', '.openclaw', 'api.txt');
-let secretCache = null;
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -42,8 +42,7 @@ function updateJob(id, updates) {
 }
 
 async function loadSecrets() {
-  if (secretCache) return secretCache;
-  secretCache = {};
+  const secrets = {};
   try {
     const raw = await fs.readFile(secretFilePath, 'utf8');
     const lines = raw.split(/\r?\n/);
@@ -52,13 +51,13 @@ async function loadSecrets() {
       if (!label) continue;
       const value = lines[i + 1];
       if (!value) continue;
-      secretCache[label] = value.trim();
+      secrets[label] = value.trim();
       i += 1;
     }
   } catch (error) {
     console.warn('Secret file not found or unreadable:', error.message);
   }
-  return secretCache;
+  return secrets;
 }
 
 async function resolveSecret(name, envVar) {
@@ -117,6 +116,7 @@ app.post('/api/generate', async (req, res) => {
     pushJob(job);
     queuedJobs.push(job);
 
+    console.log(`Launching Nano Banana job ${jobId} -> ${scriptPath} (prompt: ${prompt.substring(0, 80)})`);
     const child = spawn('python3', [
       scriptPath,
       '--prompt',
@@ -141,6 +141,7 @@ app.post('/api/generate', async (req, res) => {
 
     child.on('spawn', () => updateJob(jobId, { status: 'running', detail: 'Generating image…' }));
     child.on('error', (error) => {
+      console.error('Nano Banana spawn error', jobId, error);
       updateJob(jobId, {
         status: 'failed',
         detail: `Spawn failed: ${error.message}`,
@@ -149,6 +150,10 @@ app.post('/api/generate', async (req, res) => {
       });
     });
     child.on('close', (code) => {
+      console.log(`Nano Banana job ${jobId} exited ${code}. stdout:
+${stdoutLog}
+stderr:
+${stderrLog}`);
       const success = code === 0;
       updateJob(jobId, {
         status: success ? 'completed' : 'failed',
